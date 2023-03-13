@@ -749,6 +749,28 @@
         if(cpuid.eq.0)write(stdout, *)'End of calculating the spin texture for surface'
      endif
 
+          !> calculate the spectral function for a quantum dot
+     if(DotSpectrum_calc) then
+      if(cpuid.eq.0)write(stdout, *)' '
+      if(cpuid.eq.0)write(stdout, *)'>> Start of calculating the spectral function of a quantum dot'
+      call now(time_start)
+      call dotDOS
+      call now(time_end)
+      call print_time_cost(time_start, time_end, 'DotSpectrum')
+      if(cpuid.eq.0)write(stdout, *)'End of calculating the spectral function for dot'
+     endif
+
+     !> Calculate the direct band optical absorption
+     if(Direct_Opt_Absorption_calc) then
+      if(cpuid.eq.0)write(stdout, *)' '
+      if(cpuid.eq.0)write(stdout, *)'>> Start of calculating the Direct absorption of bulk system'
+      call now(time_start)
+      call OptAbsorption
+      call now(time_end)
+      call print_time_cost(time_start, time_end, 'OptAbsorption')
+      if(cpuid.eq.0)write(stdout, *)'End of calculating the Direct absorption of bulk system'
+     endif
+
      call now(time_end)
 
      if(cpuid.eq.0)write(stdout, *)' '

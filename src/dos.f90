@@ -883,6 +883,174 @@ subroutine dos_joint_dos
    return
 end subroutine dos_joint_dos
 
+subroutine OptAbsorption
+   !> Calculate the direct absorption spectrum of a material
+   !> OptAbs(\omege) = \int |<c|p|v>|^2*\delta(Ec-Ev-omega)*(f_ev(k) - f_ec(k)) dk3
+   !> In the discret k mesh
+   !> OptAbs(\omege) = \frac{1}{Nk} \sum |<c|p|v>|^2*\delta(Ec-Ev-omega)*(f_ev(k) - f_ec(k)) /omega 
+   
+   use wmpi 
+   use para
+   implicit none
+
+   integer :: i, ik, ie, ib, ib1, ib2, in, im
+   integer :: ikx, iky, ikz
+   integer :: knv3, NE, iband_low, iband_high
+
+   real(dp), allocatable :: OptAbs(:)
+   real(dp), allocatable :: fermi_dis(:)
+   real(dp), allocatable :: omega(:)
+   real(dp), allocatable :: W(:)  ! Eigenvalues
+   real(dp), allocatable :: VmnNorm_wann(:,:)
+   real(dp) :: dk3
+   real(dp) :: emin, emax 
+   real(dp) :: k(3)
+   real(dp) :: x
+   real(dp) :: c = 2.99792458*1E8
+
+   complex(dp), allocatable :: Hk(:,:)
+   complex(dp), allocatable :: Vmn_wann(:,:,:)
+   
+
+   !> delta function
+   real(dp), external :: delta
+
+   allocate(OptAbs(OmegaNum))
+   allocate(Hk(Num_wann,Num_wann))
+   allocate(Vmn_wann(Num_wann,Num_wann,3))
+   allocate(VmnNorm_wann(Num_wann,Num_wann))
+   allocate(W(Num_wann))
+   allocate(omega(OmegaNum))
+   allocate(fermi_dis(2))
+
+   emin= OmegaMin
+   emax= OmegaMax
+   NE = OmegaNum
+
+   eta= (emax- emin)/ dble(NE)*5d0
+   !> Boardening for the delta function
+
+   iband_low= Numoccupied- 40
+   iband_high= Numoccupied+ 40
+
+   if (iband_low <1) iband_low = 1
+   if (iband_high >Num_wann) iband_high = Num_wann
+
+   !> energy
+   do ie=1, NE
+      omega(ie)= emin+ (emax-emin)* (ie-1d0)/dble(NE-1)
+   enddo ! ie
+
+   knv3= Nk1*Nk2*Nk3
+   dk3 = 1/dble(knv3)
+
+   !> \int_k 
+
+   OptAbs = 0d0
+   do ik = 1, knv3
+      if (cpuid.eq.0) write(stdout, *) 'ik, knv3', ik, knv3
+      ikx= (ik- 1)/(Nk2*Nk3)+ 1
+      iky= (ik- (ikx-1)*Nk2*Nk3- 1)/Nk3+ 1
+      ikz= ik- (ikx-1)*Nk2*Nk3- (iky-1)*Nk3
+
+      k= K3D_start_cube+ K3D_vec1_cube*(ikx-1)/dble(nk1-1)  &
+         + K3D_vec2_cube*(iky-1)/dble(nk2-1)  &
+         + K3D_vec3_cube*(ikz-1)/dble(nk3-1)
+
+      call ham_bulk_atomicgauge(k, Hk)
+      W= 0d0
+      call eigensystem_c( 'N', 'U', Num_wann ,Hk, W) 
+      ! W contains the eigenvalues in descending order
+
+      !> calculate fermi-dirac distribution
+      do ib=iband_low, iband_high
+         if (W(ib)<0) then
+            fermi_dis(ib)= 1d0
+         else
+            fermi_dis(ib)= 0d0
+         endif
+      enddo !ib
+
+      call dHdk_atomicgauge(k,Vmn_wann)
+
+      do in=1, Num_wann
+         do im=1, Num_wann
+            VmnNorm_wann(in,im) = (abs(Vmn_wann(in,im,1)))**2 + (abs(Vmn_wann(in,im,2)))**2 + (abs(Vmn_wann(in,im,3)))**2
+         enddo
+      enddo
+
+      !print(*,*)
+
+      do ie=1,NE
+         do ib1=iband_low, iband_high-1
+            do ib2=ib1+1,iband_high
+               x = W(ib2) - W(ib1) - omega(ie)
+               OptAbs(ie) = OptAbs(ie) + VmnNorm_wann(ib1,ib2)*delta(eta,x)*(fermi_dis(ib1)-fermi_dis(ib2))/omega(ie)
+            enddo
+         enddo
+      enddo
+
+   end do
+
+      outfileindex= outfileindex+ 1
+      if (cpuid.eq.0) then
+         open(unit=outfileindex, file='OptAbs.dat')
+         write(outfileindex, *) "Energy(eV)", "   ", "Frequency(Hz)     ","   ","Optical Absorption"
+         do ie=1, NE
+            write(outfileindex, *)omega(ie)/eV2Hartree, omega(ie)*c*2*pi/(eV2Hartree*Echarge), OptAbs(ie)*dk3, 
+         enddo ! ie
+         close(outfileindex)
+      endif
+
+      !outfileindex= outfileindex+ 1
+      !if (cpuid.eq.0) then
+      !   open(unit=outfileindex, file='OptEigenvalue.dat')
+      !   do i=1, Num_wann
+      !      write(outfileindex, *) W(i)
+      !   enddo ! ie
+      !   close(outfileindex)
+      !endif
+
+      !outfileindex= outfileindex+ 1
+      !if (cpuid.eq.0) then
+      !   open(unit=outfileindex, file='Optvelocity.dat')
+      !   do ib1=1, Num_wann
+      !      do ib2=1, Num_wann
+      !         write(outfileindex, *) VmnNorm_wann(ib1,ib2)
+      !      enddo
+      !   enddo ! ie
+      !   close(outfileindex)
+      !endif
+
+
+      outfileindex= outfileindex+ 1
+      if (cpuid.eq.0) then
+         open(unit=outfileindex, file='OptAbs.gnu')
+         write(outfileindex,*) "set terminal png truecolor enhanced font ',50' size 1920, 1680"
+         write(outfileindex,*) "set output 'OptAbsorption.png'"
+         write(outfileindex,*) "set title 'Optical Absorption"
+         write(outfileindex,*) "unset key"
+         write(outfileindex,*) "unset ytic"
+         write(outfileindex,*) "set border lw 5"
+         write(outfileindex,*) "set xlabel 'Energy(eV)'"
+         write(outfileindex,*) "set ylabel 'Absorption'"
+         write(outfileindex,*) "set xrange [", omega(1)/eV2Hartree, ": ", omega(OmegaNum)/eV2Hartree, "]"
+         write(outfileindex,*) "plot 'OptAbs.dat' u 1:2 w l lw 5 lc 'black'"
+         close(outfileindex)
+      endif
+
+      deallocate(OptAbs)
+      deallocate(Hk)
+      deallocate(Vmn_wann)
+      deallocate(VmnNorm_wann)
+      deallocate(W)
+      deallocate(omega)
+      deallocate(fermi_dis)
+
+      return 
+   
+end subroutine OptAbsorption
+
 
 function delta(eta, x)
    !>  Lorentz or gaussian expansion of the Delta function

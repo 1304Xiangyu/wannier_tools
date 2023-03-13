@@ -663,6 +663,54 @@
      return
   end subroutine ham_qlayer2qlayerribbon
 
+  subroutine ham_qlayer2qlayercube(Hij)
+   
+   use para
+   implicit none
+
+   integer :: iR
+   real(dp) :: ia,ib,ic
+   real(dp) :: new_ia,new_ib,new_ic
+   integer :: inew_ia,inew_ib, inew_ic
+   ! Hij consists of slabs in three dimension
+   complex(dp), intent(out) :: Hij(-ijmax:ijmax,-ijmax:ijmax,-ijmax:ijmax,&
+                              Num_wann,Num_wann)
+
+   Hij = 0.0
+
+   do iR = 1,Nrpts
+      ia=irvec(1,iR)
+      ib=irvec(2,iR)
+      ic=irvec(3,iR)
+
+      !> new lattice
+      call latticetransform(ia, ib, ic, new_ia, new_ib, new_ic)
+
+      inew_ia= int(new_ia)
+      inew_ib= int(new_ib)
+      inew_ic= int(new_ic)
+
+      if (abs(new_ia).le.ijmax)then
+         if (abs(new_ib).le.ijmax)then
+            if(abs(new_ic).le.ijmax) then
+   
+               Hij(inew_ia, inew_ib, inew_ic, 1:Num_wann, 1:Num_wann )&
+               =HmnR(:,:,iR)/ndegen(iR)
+
+            endif
+         endif
+      endif
+ 
+   enddo
+
+   !write(*,*) 'Hij(0,0,0,1:Num_wann,1:Num_wann)'
+   !write(*,*) Hij(0,0,0,1:Num_wann,1:Num_wann)
+   !write(*,*) 'Hij(0,0,1,1:Num_wann,1:Num_wann)'
+   !write(*,*) Hij(0,0,1,1:Num_wann,1:Num_wann)
+
+ 
+   return
+  end subroutine ham_qlayer2qlayercube
 
   subroutine latticetransform(a, b, c, x, y, z)
      !> use Umatrix to get the new representation of a vector in new basis

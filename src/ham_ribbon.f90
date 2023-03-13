@@ -49,7 +49,71 @@
   return
   end
 
-
+  subroutine ham_cube(HamR_cube)
+ 
+     use para
+     implicit none
+ 
+     integer :: i1,j1,l1,i2,j2,l2,ir
+ 
+     ! Hamiltonian of cube system
+     complex(Dp),intent(out) :: HamR_cube(Num_wann*nslab1*nslab2*nslab3, &
+        Num_wann*nslab1*nslab2*nslab3)
+        
+     complex(dp), allocatable :: Hij(:, :, :, :, :)
+ 
+     allocate(Hij(-ijmax:ijmax,-ijmax:ijmax,-ijmax:ijmax,&
+     Num_wann,Num_wann))
+ 
+     HamR_cube=0.0d0 
+ 
+     call ham_qlayer2qlayercube(Hij)
+ 
+     !write(*,*) 'Finish ham_qlayer2qlayercube'
+ 
+ !    ! i1,j1,l1 row index
+     do i1=1,nslab1
+     do j1=1,nslab2
+     do l1=1,nslab3
+ 
+ !    ! i2,j2.l2 column index
+      do i2=1,nslab1
+           do j2=1,nslab2  
+                do l2=1,nslab3  
+                          if (abs(i2-i1).le.ijmax.and.abs(j2-j1).le.ijmax)then
+                               !call get_ir(i2-i1, j2-j1, l2-l1, ir)
+                               !if (ir==0) cycle
+                                    HamR_cube((i1-1)*nslab2*nslab3*Num_wann+(j1-1)*nslab3*Num_wann+(l1-1)*Num_wann+1: &
+                                                   (i1-1)*nslab2*nslab3*Num_wann+(j1-1)*nslab3*Num_wann+(l1-1)*Num_wann+Num_wann,&
+                                                   (i2-1)*nslab2*nslab3*Num_wann+(j2-1)*nslab3*Num_wann+(l2-1)*Num_wann+1: &
+                                                   (i2-1)*nslab2*nslab3*Num_wann+(j2-1)*nslab3*Num_wann+(l2-1)*Num_wann+Num_wann )&
+                                    = Hij(l2-l1,j2-j1,i2-i1,1:Num_wann,1:Num_wann)
+                          endif 
+ 
+                enddo
+           enddo
+      enddo
+ 
+      ! We take the index i2-i1 to reflect the change along the z axis
+      ! j2-j1 y axis
+      ! l2-l1 x axis
+      ! nslab1 z axis
+      ! nslab2 y axis
+      ! nslab3 x axis
+ 
+     enddo
+     enddo
+     enddo
+ 
+      !write(*,*) "Hij(0,0,0,1:Num_wann,1:Num_wann)"
+      !write(*,*) Hij(0,0,0,1:Num_wann,1:Num_wann)
+      !write(*,*) "HamR_cube"
+      !write(*,*) HamR_cube(1:Num_wann,1:Num_wann)
+ 
+      deallocate(Hij)
+ 
+  return
+ end subroutine ham_cube
 
 
 ! This subroutine is used to caculate Hamiltonian for 

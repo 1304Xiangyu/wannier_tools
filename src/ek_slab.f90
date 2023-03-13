@@ -747,3 +747,195 @@ end subroutine ek_slab_sparseHR
      return
   end subroutine ek_slab_kplane
 
+  subroutine dotDOS
+   ! This subroutine is used to calculate the Spectral function of 
+   ! 2D Slab system
+   ! A(k,E) = \sum_n \delta(E-En) |<k|\Phi_n>|^2
+
+   use wmpi
+   use para 
+   implicit none
+
+   integer :: i, j, l, m, p
+
+   ! k points, kz
+   real(Dp) :: k(3,Nk1)
+   real(dp) :: RuacrossRub(3)
+   real(dp) :: k_vector(3)
+   real(dp) :: k_len(Nk1)
+   
+   ! eigenvalue and eigenvector to get spectral function
+   real(dp), allocatable :: eigenvalue(:)
+   ! the plane wave |k> = [exp(ik) exp(2ik) exp(3ik)]
+   ! the first dimension is exp(ink), the second dimension specifies the k points
+   complex(dp), allocatable :: PlaneWave_k(:,:)
+
+   real(dp), allocatable :: A_kE(:,:)
+   ! From the SURFACE card, we define the kc
+   ! which is perpendicular to the Ka and Kb and only has one dimension z
+   real(dp), allocatable :: omega(:)
+   ! The energy array
+   real(dp) :: x
+   ! x = omega(i) - En
+
+   ! The <k|Phi>
+   real(dp) :: KdotR
+   complex(dp) :: kdotPhi
+
+   ! hamiltonian slab in real space
+   complex(Dp), allocatable ::CHmnR(:,:)
+   ! Test the Hamiltonian
+   !complex(Dp), allocatable ::HR_test(:,:)
+
+   ! delta function
+   real(dp), external :: delta
+
+   allocate(eigenvalue(nslab3*nslab2*nslab1*Num_wann))
+   allocate(PlaneWave_k(Nk1,nslab1))
+   allocate(A_kE(Nk1,omeganum))
+   allocate(CHmnR(Num_wann*nslab1*nslab2*nslab3, &
+   Num_wann*nslab1*nslab2*nslab3))
+   allocate(omega(omeganum))
+
+
+   k_vector(1) = 2*pi*(Rua_newcell(2)*Rub_newcell(3)-Rua_newcell(3)*Rub_newcell(2))/Origin_cell%CellVolume
+   k_vector(2) = 2*pi*(Rua_newcell(3)*Rub_newcell(1)-Rua_newcell(1)*Rub_newcell(3))/Origin_cell%CellVolume
+   k_vector(3) = 2*pi*(Rua_newcell(1)*Rub_newcell(2)-Rua_newcell(2)*Rub_newcell(1))/Origin_cell%CellVolume
+   !> Origin_cell%CellVolum = Volume defined by SURFACE card
+
+
+   !> Define the plane wave at each k point
+   !> PlaneWave_k(j,i) = exp(i*j*k(i)*Rc)
+   do i = 1, Nk1
+      k(1,i) = (i-1)*k_vector(1)/Nk1
+      k(2,i) = (i-1)*k_vector(2)/Nk1
+      k(3,i) = (i-1)*k_vector(3)/Nk1
+      do j = 1, nslab1
+
+         KdotR = k(1,i)*Ruc_newcell(1)+ k(2,i)*Ruc_newcell(2)+ k(3,i)*Ruc_newcell(3) 
+         PlaneWave_k(i,j) = exp(-zi*j*KdotR) 
+
+      end do
+   end do
+
+   !> Define the energy array
+   do i= 1, omeganum
+      omega(i)=omegamin+(i-1)*(omegamax-omegamin)/dble(omeganum)
+   enddo
+
+   CHmnR = 0.0
+
+   call ham_cube(CHmnR)
+
+   eigenvalue=0.0d0
+
+   ! Solve the eigenvalue and eigenvector
+   call eigensystem_c('V','U',nslab3*nslab2*nslab1*Num_wann,CHmnR,eigenvalue)
+
+   kdotPhi = 0.0
+   A_kE =  0.0
+   Eta_Arc = 1.0
+
+   eta= (omegamax- omegamin)/ dble(omeganum)*5d0*Eta_Arc
+
+   do i = 1, Nk1
+
+      ! A real space Hamiltonian for qunatum dot
+      ! in real space and then project it to the k space
+
+      do j = 1, omeganum
+         ! each energy
+         do p = 1, nslab1*nslab2*nslab3*num_wann
+            x = omega(j) - eigenvalue(p)
+
+            ! each band eigenvector(:,p)
+            ! calculate the |<k|\Phi_p>|^2
+            do l = 1, nslab1
+               ! each slab of a certain band
+               do m = 1,nslab2*nslab3*num_wann
+                  ! every wannier orbit in the slab
+                  kdotPhi = PlaneWave_k(i,l)*CHmnR((l-1)*num_wann*nslab2*nslab3+m,p) + kdotPhi
+               end do
+            end do
+
+            kdotPhi = abs(kdotPhi)**2
+            
+            ! A(k,E) = A(k,E) + \delta(E-E_p)*|<k|\Phi_p>|^2
+            A_kE(i,j) = A_kE(i,j)+delta(eta,x)*kdotPhi
+
+            kdotPhi = 0
+         end do
+      end do
+   end do
+
+   do i=1,Nk1
+      k_len(i)= dsqrt(k(1,i)**2+ k(2,i)**2+ k(3,i)**2)  
+   enddo
+
+   outfileindex = outfileindex+1
+   if(cpuid==0) then
+      open(unit=outfileindex, file='DotSpectrum.dat')
+      write(outfileindex, *) 'The data for the spectral function'
+      write(outfileindex,'("#", a12, 6a17)') ' k', ' E(eV)', 'dos'
+      do i = 1,Nk1
+         do j = 1,omeganum
+            write(outfileindex,*) k_len(i)*Angstrom2atomic,omega(j)/eV2Hartree,A_kE(i,j)
+         end do
+         write(outfileindex,*) ' '
+      end do
+   end if
+
+   outfileindex = outfileindex+1
+   if(cpuid==0) then
+      open(unit=outfileindex, file='DotSpectrum.gnu')
+      write(outfileindex,*) 'set terminal png enhanced font ",30" size 1920, 1680'
+      write(outfileindex,*) 'set palette defined (0 "#194eff", 3 "white",  10 "red")'
+      write(outfileindex,*) 'set output "DotSpectrum.png"'
+      write(outfileindex,*) 'unset key'
+      write(outfileindex,*) 'set xlabel "k"'
+      write(outfileindex,*) 'set ylabel "E(eV)"'
+      write(outfileindex,*) 'set xrange [ 0 :',k_len(Nk1)*Angstrom2atomic,']'  
+      write(outfileindex,*) 'set yrange [ ', omega(1)/eV2Hartree,': ', omega(omeganum)/eV2Hartree,']' 
+      write(outfileindex,*) 'set size 0.9, 1'
+      write(outfileindex,*) 'set colorbox'
+      write(outfileindex,*) 'set view map'
+      write(outfileindex,*) 'set pm3d interpolate 2,2'
+      write(outfileindex,*) 'set title "A(k,E)"'
+      write(outfileindex,*) 'splot "DotSpectrum.dat" u 1:2:3 w pm3d'
+   endif
+
+   outfileindex = outfileindex+1
+   if(cpuid==0) then
+      open(unit=outfileindex, file='Dot_Wavefunction.dat')
+      do i = 1,nslab1*nslab2*nslab3*Num_wann
+         do j = 1,nslab1*nslab2*nslab3*Num_wann
+            write(outfileindex,*) ChmnR(i,j)
+         enddo
+      enddo
+   endif
+
+   outfileindex = outfileindex+1
+   if(cpuid==0) then
+      open(unit=outfileindex, file='Dot_eigenvalue.dat')
+      do i = 1,nslab1*nslab2*nslab3*Num_wann
+         write(outfileindex,*) eigenvalue(i)/eV2Hartree
+      enddo
+   endif
+
+   outfileindex = outfileindex+1
+   if(cpuid==0) then
+      open(unit=outfileindex, file='Dot_PlaneWave.dat')
+      do i = 1,nslab1
+            write(outfileindex,*) PlaneWave_k(i,:)
+      enddo
+   endif
+
+
+   deallocate(eigenvalue)
+   deallocate(PlaneWave_k)
+   deallocate(A_kE)
+   deallocate(CHmnR)
+   deallocate(omega)
+
+  end subroutine dotDOS
+

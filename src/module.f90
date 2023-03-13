@@ -438,6 +438,8 @@
      logical :: LanczosSeqDOS_calc  ! DOS
      logical :: Translate_to_WS_calc  ! whether translate the k points into the Wigner-Seitz cell
      logical :: FermiLevel_calc  ! calculate Fermi level for a given temperature Beta=1/T
+     logical :: DotSpectrum_calc  ! calculate the spectral function of a 3D open system
+     logical :: Direct_Opt_Absorption_calc   ! Optical absorption of direct-band transition 
      
      logical :: LanczosBand_calc=.false.
      logical :: LanczosDos_calc= .false.
@@ -477,11 +479,13 @@
                           LanczosSeqDOS_calc, Translate_to_WS_calc, LandauLevel_k_dos_calc, &
                           LandauLevel_B_dos_calc,LanczosBand_calc,LanczosDos_calc, &
                           LandauLevel_B_calc, LandauLevel_kplane_calc,landau_chern_calc, &
-                          FermiLevel_calc , export_newhr,export_maghr,w3d_nested_calc
+                          FermiLevel_calc , export_newhr,export_maghr,w3d_nested_calc, &
+                          DotSpectrum_calc, Direct_Opt_Absorption_calc
 
      integer :: Nslab  ! Number of slabs for 2d Slab system
      integer :: Nslab1 ! Number of slabs for 1D wire system
      integer :: Nslab2 ! Number of slabs for 1D wire system
+     integer :: Nslab3 ! Number of slabs for 3D open-boundary system
 
      integer :: Np !> Number of princple layers for surface green's function
      
